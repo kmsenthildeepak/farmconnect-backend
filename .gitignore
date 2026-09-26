@@ -29,3 +29,5 @@ uploads/*
 # OS files
 .DS_Store
 Thumbs.db
+
+farmconnect_db_backup.sql

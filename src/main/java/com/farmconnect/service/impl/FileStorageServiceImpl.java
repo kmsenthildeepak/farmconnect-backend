@@ -1,7 +1,11 @@
 package com.farmconnect.service.impl;
 
+import com.cloudinary.Cloudinary;
+import com.cloudinary.utils.ObjectUtils;
+import com.farmconnect.config.CloudinaryConfig;
 import com.farmconnect.exception.BadRequestException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -10,34 +14,24 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.UUID;
+import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
- * Stores uploaded images on local disk under app.upload.dir and serves them
- * back under /uploads/<filename> (see WebConfig for the static resource
- * mapping).
- *
- * IMPORTANT: this returns a RELATIVE path ("/uploads/<filename>"), not an
- * absolute URL. Earlier versions baked app.upload.base-url (a static
- * property) into the stored/returned URL at upload time - that meant
- * whichever host happened to be configured *at the moment a product's
- * image was uploaded* was permanently frozen into that row. Any time the
- * backend's IP changed afterwards (new Wi-Fi, different machine, etc.),
- * every image uploaded before that change still carried the old host.
- * Android's ImageUrlHelper compensates for that on old rows by stripping
- * whatever host is present and rebuilding against its own current
- * ApiClient.BASE_URL - but that only works if app.upload.base-url in this
- * file's properties was already updated to match by the time a *new*
- * upload happens; if it hadn't been, brand-new uploads would bake in yet
- * another (still wrong, or differently wrong) host. A relative path has no
- * host at all, so there's nothing to go stale on either side, ever again -
- * Android always builds the full URL from whatever backend it's currently
- * pointed at, for every product regardless of when its image was uploaded.
+ * Handles persistent image storage for products and farmer profiles.
+ * If Cloudinary credentials are configured via environment variables, images are
+ * uploaded to Cloudinary and their secure HTTPS URLs are returned.
+ * If Cloudinary is not configured (e.g. during local tests), it falls back to
+ * local filesystem storage under app.upload.dir (/uploads/<filename>).
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class FileStorageServiceImpl {
+
+    private final Cloudinary cloudinary;
+    private final CloudinaryConfig cloudinaryConfig;
 
     @Value("${app.upload.dir}")
     private String uploadDir;
@@ -46,6 +40,36 @@ public class FileStorageServiceImpl {
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("No file provided");
         }
+
+        if (cloudinaryConfig != null && cloudinaryConfig.isConfigured()) {
+            return storeToCloudinary(file);
+        }
+
+        return storeToLocal(file);
+    }
+
+    private String storeToCloudinary(MultipartFile file) {
+        try {
+            Map<?, ?> uploadResult = cloudinary.uploader().upload(
+                    file.getBytes(),
+                    ObjectUtils.asMap(
+                            "folder", "farmconnect/products",
+                            "resource_type", "image"
+                    )
+            );
+            String secureUrl = (String) uploadResult.get("secure_url");
+            if (secureUrl == null || secureUrl.isBlank()) {
+                throw new BadRequestException("Cloudinary did not return a valid secure URL");
+            }
+            log.info("Image uploaded successfully to Cloudinary");
+            return secureUrl;
+        } catch (Exception e) {
+            log.error("Failed to upload image to Cloudinary: {}", e.getMessage());
+            throw new BadRequestException("Failed to store file");
+        }
+    }
+
+    private String storeToLocal(MultipartFile file) {
         try {
             Path dirPath = Paths.get(uploadDir);
             if (!Files.exists(dirPath)) {
@@ -58,6 +82,7 @@ public class FileStorageServiceImpl {
             Files.copy(file.getInputStream(), target);
             return "/uploads/" + filename;
         } catch (IOException e) {
+            log.error("Failed to store file locally: {}", e.getMessage());
             throw new BadRequestException("Failed to store file: " + e.getMessage());
         }
     }
