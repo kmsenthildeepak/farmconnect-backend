@@ -1,0 +1,12 @@
+﻿.git
+.github
+.env
+.env.*
+!.env.example
+
+target/
+uploads/
+
+farmconnect_db_backup.sql
+
+README.md
