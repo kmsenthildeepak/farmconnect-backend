@@ -15,7 +15,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -41,6 +40,12 @@ public class FileStorageServiceImpl {
             throw new BadRequestException("No file provided");
         }
 
+        String contentType = file.getContentType();
+
+        if (contentType == null) {
+            throw new BadRequestException("Image content type is required");
+        }
+
         if (cloudinaryConfig != null && cloudinaryConfig.isConfigured()) {
             return storeToCloudinary(file);
         }
@@ -57,33 +62,80 @@ public class FileStorageServiceImpl {
                             "resource_type", "image"
                     )
             );
+
             String secureUrl = (String) uploadResult.get("secure_url");
+
             if (secureUrl == null || secureUrl.isBlank()) {
-                throw new BadRequestException("Cloudinary did not return a valid secure URL");
+                throw new BadRequestException(
+                        "Cloudinary did not return a valid secure URL"
+                );
             }
+
             log.info("Image uploaded successfully to Cloudinary");
             return secureUrl;
+
+        } catch (BadRequestException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("Failed to upload image to Cloudinary: {}", e.getMessage());
+            log.error(
+                    "Failed to upload image to Cloudinary: {}",
+                    e.getMessage()
+            );
             throw new BadRequestException("Failed to store file");
         }
     }
 
     private String storeToLocal(MultipartFile file) {
         try {
-            Path dirPath = Paths.get(uploadDir);
-            if (!Files.exists(dirPath)) {
-                Files.createDirectories(dirPath);
+            Path dirPath = Paths.get(uploadDir)
+                    .toAbsolutePath()
+                    .normalize();
+
+            Files.createDirectories(dirPath);
+
+            String extension =
+                    getSafeExtension(file.getContentType());
+
+            String filename =
+                    UUID.randomUUID() + extension;
+
+            Path target =
+                    dirPath.resolve(filename).normalize();
+
+            if (!target.getParent().equals(dirPath)) {
+                throw new BadRequestException("Invalid file path");
             }
-            String original = Objects.requireNonNullElse(file.getOriginalFilename(), "file");
-            String ext = original.contains(".") ? original.substring(original.lastIndexOf('.')) : "";
-            String filename = UUID.randomUUID() + ext;
-            Path target = dirPath.resolve(filename);
-            Files.copy(file.getInputStream(), target);
+
+            Files.copy(
+                    file.getInputStream(),
+                    target
+            );
+
             return "/uploads/" + filename;
+
+        } catch (BadRequestException e) {
+            throw e;
         } catch (IOException e) {
-            log.error("Failed to store file locally: {}", e.getMessage());
-            throw new BadRequestException("Failed to store file: " + e.getMessage());
+            log.error(
+                    "Failed to store file locally: {}",
+                    e.getMessage()
+            );
+            throw new BadRequestException(
+                    "Failed to store file"
+            );
         }
+    }
+
+    private String getSafeExtension(String contentType) {
+        return switch (contentType.toLowerCase()) {
+            case "image/jpeg" -> ".jpg";
+            case "image/png" -> ".png";
+            case "image/gif" -> ".gif";
+            case "image/webp" -> ".webp";
+            case "image/bmp" -> ".bmp";
+            default -> throw new BadRequestException(
+                    "Unsupported image type"
+            );
+        };
     }
 }
