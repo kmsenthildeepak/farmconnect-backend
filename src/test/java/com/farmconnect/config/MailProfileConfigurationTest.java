@@ -18,7 +18,7 @@ class MailProfileConfigurationTest {
             assertNotNull(is, "application.properties should exist");
             props.load(is);
         }
-        assertEquals("mailpit", props.getProperty("spring.profiles.active"));
+        assertEquals("${SPRING_PROFILES_ACTIVE:mailpit}", props.getProperty("spring.profiles.active"));
         assertEquals("FarmConnect", props.getProperty("app.mail.sender-name"));
         assertEquals("${RESET_BASE_URL:http://localhost:8080}", props.getProperty("app.mail.reset-base-url"));
         assertEquals("${app.mail.reset-base-url}/reset-password", props.getProperty("app.reset-password.base-url"));

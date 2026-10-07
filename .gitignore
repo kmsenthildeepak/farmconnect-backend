@@ -31,3 +31,10 @@ uploads/*
 Thumbs.db
 
 farmconnect_db_backup.sql
+
+.local-secrets/
+
+# Migration artifacts
+cloudinary-product-migration.csv
+migrate-product-images.ps1
+products-image-url-before-migration.txt
