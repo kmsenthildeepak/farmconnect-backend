@@ -56,7 +56,9 @@ public class SecurityConfig {
             throws Exception {
 
         http
-            .csrf(csrf -> csrf.disable())
+            .csrf(csrf -> csrf
+        .ignoringRequestMatchers("/api/**")
+)
 
             .cors(cors ->
                     cors.configurationSource(corsConfigurationSource()))
